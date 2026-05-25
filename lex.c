@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include "main.h"
 
+
 int stack[STACK_MAX];
 int stack_ptr = 0;
 int print_next_token_as_literal = 0;
