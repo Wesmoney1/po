@@ -8,6 +8,10 @@ int stack[STACK_MAX];
 int stack_ptr = 0;
 int print_next_token_as_literal = 0;
 
+#define LOOP_STACK_MAX 32
+int loop_stack[LOOP_STACK_MAX];
+int loop_ptr = 0;
+
 InterpreterState current_state = STATE_EXECUTE;
 DictionaryEntry *dictionary_head = NULL;
 
@@ -60,6 +64,24 @@ int pop() {
         exit(1);
     }
     return stack[--stack_ptr];
+}
+
+void loop_push(int val) {
+    if (loop_ptr < LOOP_STACK_MAX) {
+        loop_stack[loop_ptr++] = val;
+    } else {
+        printf("Po Runtime Error: Loop stack overflow!\n");
+        exit(1);
+    }
+}
+
+int loop_pop() {
+    if (loop_ptr > 0) {
+        return loop_stack[--loop_ptr];
+    }
+    printf("Po Runtime Error: Loop stack underflow!\n");
+    exit(1);
+    return 0;
 }
 
 int is_number(const char *str) {
@@ -161,7 +183,7 @@ void interpret_token(Token t) {
     else if (t.type == TOKEN_IF) {
         int condition = pop();
         if (condition == 0) {
-            // The condition was false. Turn on skip_mode to skip to else or endif
+            // the condition was false. Turn on skip_mode to skip to else or endif
             skip_mode = 1;
             if_nested_count = 0;
         }
@@ -233,6 +255,26 @@ void interpret_token(Token t) {
             push(a);
             push(a);
         }
+        else if (strcmp(t.lexeme, "drop") == 0) {
+            pop();
+        }
+        else if (strcmp(t.lexeme, "swap") == 0) {
+            int b = pop();
+            int a = pop();
+            push(b);
+            push(a);
+        }
+        else if (strcmp(t.lexeme, "i") == 0) {
+            if (!skip_mode) {
+                // peek at the top of the loop stack without removing it
+                if (loop_ptr > 0) {
+                    push(loop_stack[loop_ptr - 1]);
+                } else {
+                    printf("Po Runtime Error: 'i' used outside of a loop!\n");
+                    exit(1);
+                }
+            }
+        }
         else if (strcmp(t.lexeme, ".\"") == 0) {
             // check if we are executing a compiled custom word right now
             if (current_word_index_ptr != NULL) {
@@ -256,21 +298,44 @@ void interpret_token(Token t) {
             }
         }
         else {
-            // check if word is defined
             DictionaryEntry *custom_word = find_word(t.lexeme);
             if (custom_word != NULL) {
-                // recursively pass custom tokens back into processor
-                for (int i = 0; i < custom_word->word_count; i++) {
+                int do_index = -1;
 
-                    if (strcmp(custom_word->words[i], ".\"") == 0 && i + 1 < custom_word->word_count) {
-                        if (!skip_mode) {
-                            printf("%s", custom_word->words[i + 1]);
-                        }
+                for (int i = 0; i < custom_word->word_count; i++) {
+                    char *current_token = custom_word->words[i];
+
+                    // handle string printing
+                    if (strcmp(current_token, ".\"") == 0 && i + 1 < custom_word->word_count) {
+                        if (!skip_mode) printf("%s", custom_word->words[i + 1]);
                         i++;
+                    }
+                    else if (strcmp(current_token, "do") == 0) {
+                        if (!skip_mode) {
+                            int start = pop();
+                            int limit = pop();
+                            loop_push(limit);
+                            loop_push(start);
+                            do_index = i;
+                        }
+                    }
+                    else if (strcmp(current_token, "loop") == 0) {
+                        if (!skip_mode) {
+                            int current_index = loop_pop();
+                            int limit = loop_pop();
+
+                            current_index++;
+
+                            if (current_index < limit) {
+                                loop_push(limit);
+                                loop_push(current_index);
+                                i = do_index; // jump the execution pointer back to do
+                            }
+                        }
                     }
                     // normal token playback
                     else {
-                        process_token(custom_word->words[i]);
+                        process_token(current_token);
                     }
                 }
             } else {
